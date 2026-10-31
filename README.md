@@ -67,7 +67,7 @@ Home Assistant frontend module that draws lightweight seasonal, weather, and hol
 | `speed` | `5` | 1–10 |
 | `layer` | `behind` | `behind` or `over` |
 | `reduce_motion` | `true` | Respects OS setting |
-| `dashboards` | `[]` | Empty = all; else `url_path` list |
+| `dashboards` | `["window-pane"]` | Empty = all; else `url_path` list. Ships scoped to the test dashboard. |
 | `weather_entity` | `weather.forecast_home` | |
 | `pause_entity` | `input_boolean.windowpane_pause` | |
 
