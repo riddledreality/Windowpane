@@ -16,7 +16,7 @@
     weatherEntity: "weather.forecast_home",
     seasonEntity: "sensor.season",
     sunEntity: "sun.sun",
-    version: "0.1.0",
+    version: "0.1.2",
   };
 
   const AMOUNTS = { low: 0.45, medium: 0.75, high: 1.0 };
@@ -49,9 +49,9 @@
     effect: "snow",
     follow_weather: true,
     follow_seasons_holidays: true,
-    amount: "low",
+    amount: "medium",
     speed: 5,
-    layer: "behind", // behind | over
+    layer: "over", // behind | over — over is default so canvas is visible above HA chrome
     reduce_motion: true,
     dashboards: ["window-pane"], // empty = all; else list of url_path (default: test dashboard only)
     weather_entity: BRAND.weatherEntity,
@@ -287,41 +287,81 @@
       this.hass = null;
       this.hidden = document.hidden;
       this._onVis = () => {
-        this.hidden = document.hidden;
+        // iOS / some WebViews report hidden oddly; only stop when clearly hidden.
+        this.hidden = document.visibilityState === "hidden";
         if (!this.hidden) this.start();
+        else this.stop();
       };
       document.addEventListener("visibilitychange", this._onVis);
+      this.hidden = document.visibilityState === "hidden";
       window.addEventListener("windowpane-config", (e) => {
         this.cfg = e.detail;
         this.applyConfig();
       });
       window.addEventListener("resize", () => this.resize());
+      // HA is an SPA — re-check dashboard path + remount after navigations.
+      this._onLoc = () => {
+        clearTimeout(this._locTimer);
+        this._locTimer = setTimeout(() => this.applyConfig(), 50);
+      };
+      window.addEventListener("location-changed", this._onLoc);
+      window.addEventListener("popstate", this._onLoc);
+      // Also poll path lightly (Companion sometimes skips events)
+      this._path = location.pathname;
+      this._pathTimer = setInterval(() => {
+        if (location.pathname !== this._path) {
+          this._path = location.pathname;
+          this.applyConfig();
+        }
+      }, 1000);
     }
 
     attach() {
-      if (this.canvas) return;
-      const c = document.createElement("canvas");
+      const c = this.canvas || document.createElement("canvas");
       c.id = BRAND.id + "-canvas";
       c.setAttribute("aria-hidden", "true");
+      const over = this.cfg.layer !== "behind";
       Object.assign(c.style, {
         position: "fixed",
         inset: "0",
         width: "100%",
         height: "100%",
         pointerEvents: "none",
-        zIndex: this.cfg.layer === "over" ? "1" : "0",
+        // HA chrome (home-assistant) paints opaque over body z-index 0.
+        // "over" sits above UI chrome but never captures taps.
+        // "behind" tries to live inside the lovelace view under cards.
+        zIndex: over ? "7" : "0",
       });
-      // Insert behind HA UI when possible
-      const root =
-        document.querySelector("home-assistant") || document.body;
-      if (this.cfg.layer === "behind") {
-        // Keep above background but below cards: z-index 0 under drawer content
-        c.style.zIndex = "0";
-      }
-      (document.body || root).appendChild(c);
+      const host = this._findMount(over);
+      if (c.parentElement !== host) host.appendChild(c);
       this.canvas = c;
       this.ctx = c.getContext("2d", { alpha: true });
       this.resize();
+    }
+
+    _findMount(over) {
+      // Prefer document.body for "over" so we cover the whole viewport above panels.
+      if (over) return document.body;
+      // behind: try to mount inside hui-view / hui-root so cards stack above us
+      try {
+        const ha = document.querySelector("home-assistant");
+        const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector("home-assistant-main");
+        const drawer = main && main.shadowRoot && (main.shadowRoot.querySelector("ha-drawer") || main.shadowRoot);
+        const panel = drawer && drawer.querySelector && (drawer.querySelector("ha-panel-lovelace") || (drawer.shadowRoot && drawer.shadowRoot.querySelector("ha-panel-lovelace")));
+        // ha-drawer children aren't in shadow; panel resolver is light DOM
+        const resolver = main && main.shadowRoot && main.shadowRoot.querySelector("partial-panel-resolver");
+        const lovelace = (resolver && resolver.querySelector("ha-panel-lovelace")) || document.querySelector("ha-panel-lovelace");
+        const root = lovelace && lovelace.shadowRoot && lovelace.shadowRoot.querySelector("hui-root");
+        const view =
+          (root && root.shadowRoot && (root.shadowRoot.querySelector("#view") || root.shadowRoot.querySelector("hui-view"))) ||
+          null;
+        if (view) {
+          if (getComputedStyle(view).position === "static") view.style.position = "relative";
+          return view;
+        }
+        if (root && root.shadowRoot) return root.shadowRoot;
+      } catch (_) {}
+      return document.body;
     }
 
     resize() {
@@ -345,42 +385,56 @@
         window.matchMedia &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches
       ) {
-        cap = Math.max(8, Math.round(cap * 0.35));
+        // Keep it clearly visible — just sparser/slower, not invisible.
+        cap = Math.max(18, Math.round(cap * 0.55));
+        this._reduced = true;
+      } else {
+        this._reduced = false;
       }
       return cap;
     }
 
     speedMul() {
       const s = Number(this.cfg.speed) || 5;
-      return 0.4 + (s / 10) * 1.4;
+      let m = 0.4 + (s / 10) * 1.4;
+      if (this._reduced) m *= 0.45;
+      return m;
     }
 
     shouldRunOnDashboard() {
       const list = this.cfg.dashboards;
       if (!list || !list.length) return true;
-      const path = (location.pathname || "").replace(/\/$/, "");
-      // HA paths look like /window-pane or /lovelace/window-pane
+      // HA storage dashboards use /{url_path} or /{url_path}/{view}
+      // Companion may also use /lovelace/{url_path}/...
+      const path = (location.pathname || "").replace(/\/$/, "").toLowerCase();
+      const segments = path.split("/").filter(Boolean);
       return list.some((p) => {
-        const needle = String(p).replace(/^\//, "");
-        return path.endsWith("/" + needle) || path.endsWith(needle);
+        const needle = String(p).replace(/^\//, "").toLowerCase();
+        if (!needle) return true;
+        if (segments.includes(needle)) return true;
+        // also allow prefix match: /window-pane/home
+        if (path === "/" + needle || path.startsWith("/" + needle + "/")) return true;
+        if (path.includes("/lovelace/" + needle)) return true;
+        return false;
       });
     }
 
     isPaused() {
-      if (!this.cfg.enabled) return true;
+      if (this.cfg.enabled === false) return true;
       if (!this.shouldRunOnDashboard()) return true;
       const ent =
         this.hass &&
         this.hass.states &&
         this.hass.states[this.cfg.pause_entity || BRAND.pauseEntity];
-      if (ent && ent.state === "on") return true;
+      if (ent && String(ent.state).toLowerCase() === "on") return true;
       return false;
     }
 
     applyConfig() {
       if (!this.canvas) this.attach();
       if (this.canvas) {
-        this.canvas.style.zIndex = this.cfg.layer === "over" ? "40" : "0";
+        this.canvas.style.zIndex = this.cfg.layer === "behind" ? "0" : "7";
+        this.attach(); // remount if layer/host changed
       }
       this.rebuild();
       if (this.isPaused() || this.hidden) this.stop();
@@ -389,7 +443,7 @@
 
     setHass(hass) {
       this.hass = hass;
-      this.rebuild();
+      this.applyConfig();
     }
 
     rebuild() {
@@ -399,8 +453,15 @@
       this.particles = [];
       this.bursts = [];
       const n = this.cap();
-      for (let i = 0; i < n; i++) this.particles.push(this.spawn(true));
-      this.fog = resolved.fog ? 0.25 : 0;
+      const fogN = resolved.fog ? Math.max(4, Math.round(n * 0.25)) : 0;
+      for (let i = 0; i < n - fogN; i++) this.particles.push(this.spawn(true));
+      if (fogN) {
+        const prev = this.effect;
+        this.effect = "fog";
+        for (let i = 0; i < fogN; i++) this.particles.push(this.spawn(true));
+        this.effect = prev;
+      }
+      this.fog = resolved.fog ? 0.18 : 0;
     }
 
     spawn(randomY) {
@@ -511,19 +572,23 @@
           ];
           break;
         case "bats":
-          base.r = 6 + Math.random() * 8;
+          // Light-enough to read on dark HA themes (near-black bats vanish).
+          base.r = 9 + Math.random() * 10;
           base.vy = (Math.random() - 0.5) * 0.6 * sm;
           base.vx = (0.8 + Math.random() * 1.4) * sm * (Math.random() < 0.5 ? -1 : 1);
-          base.y = Math.random() * h * 0.6;
-          base.color = "#1c1917";
+          base.y = Math.random() * h * 0.65;
+          base.a = 0.75 + Math.random() * 0.25;
+          base.color = ["#a78bfa", "#c4b5fd", "#ddd6fe", "#9ca3af", "#e7e5e4"][
+            Math.floor(Math.random() * 5)
+          ];
           base.wing = 0;
           break;
         case "fog":
-          base.r = 40 + Math.random() * 80;
+          base.r = 50 + Math.random() * 100;
           base.vy = (Math.random() - 0.5) * 0.05;
           base.vx = (0.1 + Math.random() * 0.25) * sm;
-          base.a = 0.04 + Math.random() * 0.06;
-          base.color = "rgba(200,200,210,0.5)";
+          base.a = 0.08 + Math.random() * 0.12;
+          base.color = "rgba(196,181,253,0.55)";
           break;
         case "confetti":
           base.r = 3 + Math.random() * 4;
@@ -612,7 +677,7 @@
       ctx.clearRect(0, 0, w, h);
 
       if (this.fog > 0 || this.effect === "fog") {
-        ctx.fillStyle = `rgba(180,185,200,${this.fog || 0.08})`;
+        ctx.fillStyle = `rgba(120,100,160,${this.fog || 0.08})`;
         ctx.fillRect(0, 0, w, h);
       }
 
@@ -835,7 +900,7 @@
     }
 
     drawBat(ctx, r, wing) {
-      ctx.fillStyle = "#1c1917";
+      // fillStyle already set by drawParticle from p.color
       const flap = Math.sin(wing) * 0.4;
       ctx.beginPath();
       ctx.arc(0, 0, r * 0.35, 0, Math.PI * 2);
@@ -1071,5 +1136,28 @@
   });
 
   // Expose for debugging / tests
-  window[BRAND.id] = { BRAND, engine, loadConfig, saveConfig, resolveEffect, EFFECTS };
+  window[BRAND.id] = {
+    BRAND,
+    engine,
+    loadConfig,
+    saveConfig,
+    resolveEffect,
+    EFFECTS,
+    diagnose() {
+      return {
+        version: BRAND.version,
+        path: location.pathname,
+        cfg: loadConfig(),
+        shouldRun: engine.shouldRunOnDashboard(),
+        paused: engine.isPaused(),
+        running: engine.running,
+        effect: engine.effect,
+        meta: engine.meta,
+        particles: engine.particles.length,
+        canvas: !!engine.canvas,
+        parent: engine.canvas && engine.canvas.parentElement && engine.canvas.parentElement.tagName,
+        z: engine.canvas && getComputedStyle(engine.canvas).zIndex,
+      };
+    },
+  };
 })();

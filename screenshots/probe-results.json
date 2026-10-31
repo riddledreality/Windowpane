@@ -1,0 +1,102 @@
+{
+  "desktop": {
+    "path": "/window-pane/home",
+    "href": "https://c5hikfdkavzlkeowkf8ybeyetwfb9c9k.ui.nabu.casa/window-pane/home",
+    "hasHass": true,
+    "version": "0.1.1",
+    "diagnose": {
+      "version": "0.1.1",
+      "path": "/window-pane/home",
+      "cfg": {
+        "enabled": true,
+        "mode": "auto",
+        "effect": "snow",
+        "follow_weather": true,
+        "follow_seasons_holidays": true,
+        "amount": "medium",
+        "speed": 5,
+        "layer": "over",
+        "reduce_motion": true,
+        "dashboards": [
+          "window-pane"
+        ],
+        "weather_entity": "weather.forecast_home",
+        "season_entity": "sensor.season",
+        "sun_entity": "sun.sun",
+        "pause_entity": "input_boolean.windowpane_pause"
+      },
+      "shouldRun": true,
+      "paused": true,
+      "running": false,
+      "effect": "bats",
+      "meta": {
+        "effect": "bats",
+        "fog": true,
+        "midnightFireworks": false,
+        "reason": "holiday:halloween"
+      },
+      "particles": 60,
+      "canvas": true,
+      "parent": "BODY",
+      "z": "7"
+    },
+    "nonZero": 0,
+    "bright": 0,
+    "canvasZ": "7",
+    "canvasParent": "BODY"
+  },
+  "iphone": {
+    "path": "/auth/authorize",
+    "href": "https://c5hikfdkavzlkeowkf8ybeyetwfb9c9k.ui.nabu.casa/auth/authorize?response_type=code&redirect_uri",
+    "hasHass": false,
+    "nonZero": 0,
+    "bright": 0,
+    "canvasZ": null
+  },
+  "iphone_reduced": {
+    "path": "/window-pane/home",
+    "href": "https://c5hikfdkavzlkeowkf8ybeyetwfb9c9k.ui.nabu.casa/window-pane/home",
+    "hasHass": true,
+    "version": "0.1.1",
+    "diagnose": {
+      "version": "0.1.1",
+      "path": "/window-pane/home",
+      "cfg": {
+        "enabled": true,
+        "mode": "auto",
+        "effect": "snow",
+        "follow_weather": true,
+        "follow_seasons_holidays": true,
+        "amount": "medium",
+        "speed": 5,
+        "layer": "over",
+        "reduce_motion": true,
+        "dashboards": [
+          "window-pane"
+        ],
+        "weather_entity": "weather.forecast_home",
+        "season_entity": "sensor.season",
+        "sun_entity": "sun.sun",
+        "pause_entity": "input_boolean.windowpane_pause"
+      },
+      "shouldRun": true,
+      "paused": true,
+      "running": false,
+      "effect": "bats",
+      "meta": {
+        "effect": "bats",
+        "fog": true,
+        "midnightFireworks": false,
+        "reason": "holiday:halloween"
+      },
+      "particles": 18,
+      "canvas": true,
+      "parent": "BODY",
+      "z": "7"
+    },
+    "nonZero": 0,
+    "bright": 0,
+    "canvasZ": "7",
+    "canvasParent": "BODY"
+  }
+}
